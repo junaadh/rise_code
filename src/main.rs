@@ -3,9 +3,14 @@ use std::{
     os::unix::net::UnixListener,
     process::{Command, Stdio},
     str,
-    sync::mpsc::{self, Sender},
+    sync::mpsc::{self, Receiver, Sender},
     thread,
     time::Duration,
+};
+
+use discord_rich_presence::{
+    activity::{Activity, Assets},
+    DiscordIpc, DiscordIpcClient,
 };
 
 #[derive(Debug, Clone)]
@@ -36,15 +41,15 @@ impl Code {
         true
     }
 
-    fn attach(mut self, cond: bool) -> Self {
-        self.attach_status = cond;
-        self
-    }
+    // fn attach(mut self, cond: bool) -> Self {
+    //     self.attach_status = cond;
+    //     self
+    // }
 
-    fn detach(mut self, cond: bool) -> Self {
-        self.detach_status = cond;
-        self
-    }
+    // fn detach(mut self, cond: bool) -> Self {
+    //     self.detach_status = cond;
+    //     self
+    // }
 }
 
 fn listen_attach(port: &str, buffer: &mut String) -> Code {
@@ -65,7 +70,7 @@ fn listen_attach(port: &str, buffer: &mut String) -> Code {
                 let mut parts = buffer.trim().split(':');
                 let sess = parts.next().unwrap_or_default();
                 let lang = parts.next().unwrap_or_default();
-                thread::sleep(Duration::from_secs(5));
+                // thread::sleep(Duration::from_secs(2));
                 return Code::new(sess, lang, true, false);
             }
             Err(_) => continue,
@@ -80,14 +85,19 @@ fn check_session_state(tmux_sess: &str) -> bool {
         Ok(output) => {
             if output.status.success() {
                 let output_str = str::from_utf8(&output.stdout).expect("Invalud utf");
-                return !output_str
-                    .split('\n')
-                    .any(|line| line.contains(tmux_sess) && line.contains("(attached)"));
+                let res = !output_str.split('\n').any(|line| {
+                    // println!("{:?}", &line);
+                    line.contains(tmux_sess) && line.contains("(attached)")
+                });
+                res
             } else {
-                false
+                true
             }
         }
-        Err(_) => true,
+        Err(_) => {
+            println!("checking 123");
+            true
+        }
     }
 }
 
@@ -109,7 +119,7 @@ fn listen(tx: Sender<Code>) {
             true => {
                 let _ = tx.send(code);
             }
-            false => continue,
+            false => continue 'main,
         }
         thread::sleep(Duration::from_secs(5));
         'detach: loop {
@@ -117,7 +127,6 @@ fn listen(tx: Sender<Code>) {
             match code.detach_status {
                 true => {
                     let _ = tx.send(code);
-                    thread::sleep(Duration::from_secs(5));
                     continue 'main;
                 }
                 false => continue 'detach,
@@ -126,14 +135,90 @@ fn listen(tx: Sender<Code>) {
     }
 }
 
-fn main() {
+fn truncate(text: &str, max_length: usize) -> &str {
+    match text.char_indices().nth(max_length) {
+        Some((idx, _)) => &text[..idx],
+        None => text,
+    }
+}
+
+async fn get_client() -> Result<DiscordIpcClient, String> {
+    let mut client = DiscordIpcClient::new("1208484529510154260").expect("invalid client id");
+    client
+        .connect()
+        .map_err(|_| "Failed at connecting to discord client".to_string())?;
+    Ok(client)
+}
+
+async fn load_client(code: &Code, client: &mut DiscordIpcClient) -> Result<(), ()> {
+    let assets = Assets::new().large_image("helix-logo");
+    // .large_image("rust-logo")
+    // .small_image("helix-logo");
+    // TODO: buttons
+    client
+        .set_activity(
+            Activity::new()
+                .state(truncate(&code.tmux_session, 128))
+                .details(truncate(&code.language, 128))
+                .assets(assets),
+        )
+        .map_err(|_| {
+            println!("FAiled to load activity: trying again");
+        })?;
+    Ok(())
+}
+
+async fn run(rx: &Receiver<Code>) {
+    let mut code = rx.recv().unwrap();
+    let sess = code.tmux_session.clone();
+    let mut client;
+    'run: loop {
+        if !get_open("Discord") {
+            continue 'run;
+        }
+        match get_client().await {
+            Ok(disc) => {
+                client = disc;
+                println!(
+                    "Session {} connected: {}",
+                    &code.tmux_session, &code.attach_status
+                );
+                println!("Coding in {}", &code.language);
+                if load_client(&code, &mut client).await.is_err() {
+                    continue;
+                };
+                loop {
+                    code = rx.recv().unwrap();
+                    if code.detach_status {
+                        let _ = client.clear_activity();
+                        break 'run;
+                    }
+                }
+            }
+            Err(_) => {
+                thread::sleep(Duration::from_secs(5));
+                continue 'run;
+            }
+        }
+    }
+    let _ = client.close();
+    println!("Session {} disconnected: {}", sess, &code.detach_status);
+}
+
+fn get_open(name: &str) -> bool {
+    let discord = Command::new("pgrep").arg(name).output().unwrap();
+    discord.status.success()
+}
+
+#[tokio::main]
+async fn main() {
     let (tx, rx) = mpsc::channel::<Code>();
 
     thread::spawn(|| {
         listen(tx);
     });
 
-    for rcv in rx {
-        println!("{:#?}", rcv);
+    loop {
+        run(&rx).await;
     }
 }

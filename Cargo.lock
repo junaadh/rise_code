@@ -168,6 +168,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "osascript"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38731fa859ef679f1aec66ca9562165926b442f298467f76f5990f431efe87dc"
+dependencies = [
+ "serde",
+ "serde_derive",
+ "serde_json",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -228,6 +239,7 @@ name = "rise_code"
 version = "0.1.0"
 dependencies = [
  "discord-rich-presence",
+ "osascript",
  "tokio",
 ]
 
