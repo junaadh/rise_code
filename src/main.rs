@@ -17,15 +17,23 @@ use discord_rich_presence::{
 struct Code {
     tmux_session: String,
     language: String,
+    file: String,
     attach_status: bool,
     detach_status: bool,
 }
 
 impl Code {
-    fn new(tmux_session: &str, language: &str, attach_status: bool, detach_status: bool) -> Self {
+    fn new(
+        tmux_session: &str,
+        language: &str,
+        file: &str,
+        attach_status: bool,
+        detach_status: bool,
+    ) -> Self {
         Self {
             tmux_session: tmux_session.to_string(),
             language: language.to_string(),
+            file: file.to_string(),
             attach_status,
             detach_status,
         }
@@ -66,17 +74,16 @@ fn listen_attach(port: &str, buffer: &mut String) -> Code {
                 stream
                     .read_to_string(buffer)
                     .expect("Failed to read stream");
-                // println!("{}", &buffer);
                 let mut parts = buffer.trim().split(':');
                 let sess = parts.next().unwrap_or_default();
                 let lang = parts.next().unwrap_or_default();
-                // thread::sleep(Duration::from_secs(2));
-                return Code::new(sess, lang, true, false);
+                let file_name = parts.next().unwrap_or("");
+                return Code::new(sess, lang, file_name, true, false);
             }
             Err(_) => continue,
         }
     }
-    Code::new("", "", false, false)
+    Code::new("", "", "", false, false)
 }
 
 fn check_session_state(tmux_sess: &str) -> bool {
@@ -85,10 +92,9 @@ fn check_session_state(tmux_sess: &str) -> bool {
         Ok(output) => {
             if output.status.success() {
                 let output_str = str::from_utf8(&output.stdout).expect("Invalud utf");
-                let res = !output_str.split('\n').any(|line| {
-                    // println!("{:?}", &line);
-                    line.contains(tmux_sess) && line.contains("(attached)")
-                });
+                let res = !output_str
+                    .split('\n')
+                    .any(|line| line.contains(tmux_sess) && line.contains("(attached)"));
                 res
             } else {
                 true
@@ -103,8 +109,8 @@ fn check_session_state(tmux_sess: &str) -> bool {
 
 fn listen_detach(tmux_sess: &str) -> Code {
     match check_session_state(tmux_sess) {
-        true => Code::new("", "", false, true),
-        false => Code::new("", "", false, false),
+        true => Code::new("", "", "", false, true),
+        false => Code::new("", "", "", false, false),
     }
 }
 
@@ -152,20 +158,94 @@ async fn get_client() -> Result<DiscordIpcClient, String> {
 
 async fn load_client(code: &Code, client: &mut DiscordIpcClient) -> Result<(), ()> {
     let assets = Assets::new().large_image("helix-logo");
+    let code_str = if code.file.is_empty() {
+        format!("Coding in {}", code.language)
+    } else {
+        format!("Editing: {}", code.file)
+    };
     // .large_image("rust-logo")
     // .small_image("helix-logo");
     // TODO: buttons
     client
         .set_activity(
             Activity::new()
-                .state(truncate(&code.tmux_session, 128))
-                .details(truncate(&code.language, 128))
+                .state(truncate(&format!("#Tmux: {}", &code.tmux_session), 128))
+                .details(truncate(&code_str, 128))
                 .assets(assets),
         )
         .map_err(|_| {
-            println!("FAiled to load activity: trying again");
+            println!("Failed to load activity: trying again");
         })?;
     Ok(())
+}
+
+fn fetch_info(code: &Code) -> Code {
+    let window_info = Command::new("tmux")
+        .args([
+            "list-windows",
+            "-t",
+            &code.tmux_session,
+            "-F",
+            "#{window_index} #{window_name}",
+        ])
+        .output()
+        .map_err(|_| println!("Cannot get windowindex & windowname"))
+        .unwrap();
+    let mut info = String::new();
+    if window_info.status.success() {
+        info = str::from_utf8(&window_info.stdout)
+            .expect("Invalid format")
+            .split('\n')
+            .find_map(|line| {
+                if line.contains("hx") {
+                    line.split_whitespace().next().map(|str| str.to_owned())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or("".to_string());
+    }
+    let mut pane_content = String::new();
+    if !info.is_empty() {
+        let pane_capture = Command::new("tmux")
+            .args([
+                "capture-pane",
+                "-p",
+                "-t",
+                &format!("{}:{}", &code.tmux_session, info),
+            ])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let grep = Command::new("grep")
+            .arg("sel")
+            .stdin(Stdio::from(pane_capture.stdout.unwrap()))
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let awk = Command::new("awk")
+            .arg("{ print $2 }")
+            .stdin(Stdio::from(grep.stdout.unwrap()))
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let output = awk.wait_with_output().unwrap();
+        if output.status.success() {
+            pane_content = str::from_utf8(&output.stdout)
+                .expect("Invalid format")
+                .replace(['▍', '│'], "")
+                .trim()
+                .to_string();
+        }
+    }
+    Code::new(
+        &code.tmux_session,
+        &code.language,
+        &pane_content,
+        code.attach_status,
+        code.detach_status,
+    )
 }
 
 async fn run(rx: &Receiver<Code>) {
@@ -184,11 +264,15 @@ async fn run(rx: &Receiver<Code>) {
                     &code.tmux_session, &code.attach_status
                 );
                 println!("Coding in {}", &code.language);
-                if load_client(&code, &mut client).await.is_err() {
-                    continue;
-                };
-                loop {
-                    code = rx.recv().unwrap();
+                'update: loop {
+                    code = fetch_info(&code);
+                    if load_client(&code, &mut client).await.is_err() {
+                        continue;
+                    };
+                    match rx.recv_timeout(Duration::from_secs(1)) {
+                        Ok(cli) => code = cli,
+                        Err(_) => continue 'update,
+                    }
                     if code.detach_status {
                         let _ = client.clear_activity();
                         break 'run;
@@ -221,4 +305,11 @@ async fn main() {
     loop {
         run(&rx).await;
     }
+    // for rcv in rx {
+    //     for mut _i in 1..10000 {
+    //         fetch_info(&rcv);
+    //         thread::sleep(Duration::from_secs(2));
+    //         _i += 1;
+    //     }
+    // }
 }
