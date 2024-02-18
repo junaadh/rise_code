@@ -9,15 +9,68 @@ use std::{
 };
 
 use discord_rich_presence::{
-    activity::{Activity, Assets},
+    activity::{Activity, Assets, Button},
     DiscordIpc, DiscordIpcClient,
 };
+
+enum Language {
+    C,
+    Cpp,
+    Css,
+    Go,
+    Html,
+    Java,
+    Javascript,
+    Lua,
+    Python,
+    R,
+    Rust,
+    Typescript,
+}
+
+impl Language {
+    fn match_lang(&self) -> &str {
+        match self {
+            Self::C => "c-logo",
+            Self::Cpp => "cpp-logo",
+            Self::Css => "css-logo",
+            Self::Go => "go-logo",
+            Self::Html => "html-logo",
+            Self::Java => "java-logo",
+            Self::Javascript => "javascript-logo",
+            Self::Lua => "lua-logo",
+            Self::Python => "python-logo",
+            Self::R => "r-logo",
+            Self::Rust => "rust-logo",
+            Self::Typescript => "typescript-logo",
+        }
+    }
+
+    fn get_logo(lang: &str) -> &str {
+        match lang {
+            "c" => Self::C.match_lang(),
+            "cpp" => Self::Cpp.match_lang(),
+            "css" => Self::Css.match_lang(),
+            "go" => Self::Go.match_lang(),
+            "html" => Self::Html.match_lang(),
+            "java" => Self::Java.match_lang(),
+            "javascript" => Self::Javascript.match_lang(),
+            "lua" => Self::Lua.match_lang(),
+            "python" => Self::Python.match_lang(),
+            "r" => Self::R.match_lang(),
+            "rust" => Self::Rust.match_lang(),
+            "typescript" => Self::Typescript.match_lang(),
+            _ => "wild-card",
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 struct Code {
     tmux_session: String,
     language: String,
     file: String,
+    github: String,
     attach_status: bool,
     detach_status: bool,
 }
@@ -27,6 +80,7 @@ impl Code {
         tmux_session: &str,
         language: &str,
         file: &str,
+        github: &str,
         attach_status: bool,
         detach_status: bool,
     ) -> Self {
@@ -34,6 +88,7 @@ impl Code {
             tmux_session: tmux_session.to_string(),
             language: language.to_string(),
             file: file.to_string(),
+            github: github.to_string(),
             attach_status,
             detach_status,
         }
@@ -78,12 +133,16 @@ fn listen_attach(port: &str, buffer: &mut String) -> Code {
                 let sess = parts.next().unwrap_or_default();
                 let lang = parts.next().unwrap_or_default();
                 let file_name = parts.next().unwrap_or("");
-                return Code::new(sess, lang, file_name, true, false);
+                let repo_name = parts
+                    .next()
+                    .unwrap_or("https://google.com")
+                    .replace(';', ":");
+                return Code::new(sess, lang, file_name, repo_name.as_str(), true, false);
             }
             Err(_) => continue,
         }
     }
-    Code::new("", "", "", false, false)
+    Code::new("", "", "", "", false, false)
 }
 
 fn check_session_state(tmux_sess: &str) -> bool {
@@ -109,8 +168,8 @@ fn check_session_state(tmux_sess: &str) -> bool {
 
 fn listen_detach(tmux_sess: &str) -> Code {
     match check_session_state(tmux_sess) {
-        true => Code::new("", "", "", false, true),
-        false => Code::new("", "", "", false, false),
+        true => Code::new("", "", "", "", false, true),
+        false => Code::new("", "", "", "", false, false),
     }
 }
 
@@ -157,25 +216,32 @@ async fn get_client() -> Result<DiscordIpcClient, String> {
 }
 
 async fn load_client(code: &Code, client: &mut DiscordIpcClient) -> Result<(), ()> {
-    let assets = Assets::new().large_image("helix-logo");
+    let big_text = format!("Programming Language: {}", code.language);
+    let small_text = format!("Helix Editor opened in Tmux: {}", code.tmux_session);
     let code_str = if code.file.is_empty() {
         format!("Coding in {}", code.language)
     } else {
         format!("Editing: {}", code.file)
     };
-    // .large_image("rust-logo")
-    // .small_image("helix-logo");
+    let tmux = format!("#Tmux: {}", &code.tmux_session);
+    let assets = Assets::new()
+        // .large_image("helix-logo");
+        .large_image(Language::get_logo(&code.language))
+        .large_text(&big_text)
+        .small_image("helix-logo-nice")
+        .small_text(&small_text);
+    let mut activity = Activity::new()
+        .state(truncate(&tmux, 128))
+        .details(truncate(&code_str, 128));
+    let buttons = vec![Button::new("View Git Repo", &code.github)];
+    if code.github.trim().contains("github") {
+        activity = activity.buttons(buttons);
+    }
+    activity = activity.assets(assets);
     // TODO: buttons
-    client
-        .set_activity(
-            Activity::new()
-                .state(truncate(&format!("#Tmux: {}", &code.tmux_session), 128))
-                .details(truncate(&code_str, 128))
-                .assets(assets),
-        )
-        .map_err(|_| {
-            println!("Failed to load activity: trying again");
-        })?;
+    client.set_activity(activity).map_err(|_| {
+        println!("Failed to load activity: trying again");
+    })?;
     Ok(())
 }
 
@@ -243,6 +309,7 @@ fn fetch_info(code: &Code) -> Code {
         &code.tmux_session,
         &code.language,
         &pane_content,
+        &code.github,
         code.attach_status,
         code.detach_status,
     )
@@ -266,8 +333,11 @@ async fn run(rx: &Receiver<Code>) {
                 println!("Coding in {}", &code.language);
                 'update: loop {
                     code = fetch_info(&code);
-                    if load_client(&code, &mut client).await.is_err() {
-                        continue;
+                    // if !get_open("Discord") {
+                    // continue 'run;
+                    // }
+                    if !get_open("Discord") || load_client(&code, &mut client).await.is_err() {
+                        continue 'run;
                     };
                     match rx.recv_timeout(Duration::from_secs(1)) {
                         Ok(cli) => code = cli,
@@ -305,11 +375,4 @@ async fn main() {
     loop {
         run(&rx).await;
     }
-    // for rcv in rx {
-    //     for mut _i in 1..10000 {
-    //         fetch_info(&rcv);
-    //         thread::sleep(Duration::from_secs(2));
-    //         _i += 1;
-    //     }
-    // }
 }
