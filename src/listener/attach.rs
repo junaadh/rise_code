@@ -1,52 +1,16 @@
 use std::{
     io::Read,
     os::unix::net::{UnixListener, UnixStream},
-    process::{Command, Stdio},
 };
 
-use crate::interface::code::Code;
+use crate::{interface::code::Code, listener::recieve_stream};
 
 use super::PORT;
 
-pub fn run() -> Code {
-    let listener = attach();
-    log::info!("Listening for requests on: {PORT}");
+pub fn run(listener: &UnixListener) -> Code {
+    log::info!("Listening to attach requests on: {PORT}");
     let stream = recieve_stream(listener);
     parse_result(stream.unwrap()).unwrap()
-}
-
-fn attach() -> UnixListener {
-    // removes existing /tmp/dev_rpc i exists
-    // if not returns error
-    // result is ignored no matter
-    let _ = Command::new("rm")
-        .arg(PORT)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    // bidn port and return the listener on the port
-    UnixListener::bind(PORT)
-        .map_err(|err| log::error!("failed to bind to socket {PORT}: {err}"))
-        .unwrap()
-}
-
-fn recieve_stream(listener: UnixListener) -> Option<UnixStream> {
-    // get a stream from the port
-    for stream in listener.incoming() {
-        match stream {
-            // return stream
-            Ok(next) => {
-                return Some(next);
-            }
-            // log error and continue loop
-            Err(err) => {
-                log::warn!("revieving stream error: {err}");
-                continue;
-            }
-        }
-    }
-    // here to handle edge cases and make compiler happy
-    None
 }
 
 fn parse_result(mut stream: UnixStream) -> Result<Code, ()> {
@@ -76,11 +40,11 @@ fn parse_result(mut stream: UnixStream) -> Result<Code, ()> {
     });
     let repo_name = parts
         .next()
+        .map(|repo| format!("https://github.com/{repo}"))
         .unwrap_or_else(|| {
             log::warn!("repo name returned none");
-            "https://"
-        })
-        .replace(';', ":");
+            "https://".to_string()
+        });
     Ok(Code::new(
         session_name,
         language,

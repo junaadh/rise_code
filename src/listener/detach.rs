@@ -1,31 +1,20 @@
-use core::str;
-use std::process::Command;
+use std::{
+    io::Read,
+    os::unix::net::{UnixListener, UnixStream},
+};
 
-use crate::interface;
+use super::recieve_stream;
 
-pub fn run(session_name: &str) -> interface::code::Code {
-    interface::code::Code::detach_new(check_session_state(session_name))
+pub fn run(listener: &UnixListener) -> String {
+    log::info!("Waiting for detach request:");
+    let stream = recieve_stream(listener);
+    parse_result(stream.unwrap()).unwrap()
 }
 
-// return true if session attached and vice versa
-fn check_session_state(session_name: &str) -> bool {
-    let tmux_ls = Command::new("tmux").arg("ls").output();
-
-    match tmux_ls {
-        Ok(ls_buffer) => match ls_buffer.status.success() {
-            true => {
-                let ls_str = str::from_utf8(&ls_buffer.stdout)
-                    .map_err(|err| log::error!("Invalid utf8 format: {err}"))
-                    .unwrap();
-                !ls_str
-                    .split('\n')
-                    .any(|line| line.contains(session_name) && line.contains("(attached)"))
-            }
-            false => true,
-        },
-        Err(err) => {
-            log::error!("failed to get tmux ls state: {err}");
-            true
-        }
-    }
+fn parse_result(mut stream: UnixStream) -> Result<String, ()> {
+    let mut buf = String::new();
+    stream
+        .read_to_string(&mut buf)
+        .map_err(|err| log::error!("Failed to read stream: {err}"))?;
+    Ok(buf.trim().to_string())
 }

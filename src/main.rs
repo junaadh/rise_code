@@ -1,5 +1,6 @@
 pub mod interface;
 pub mod listener;
+pub mod loader;
 
 use std::{
     env,
@@ -61,7 +62,7 @@ async fn load_client(
     Ok(())
 }
 
-fn fetch_info(code: &interface::code::Code) -> interface::code::Code {
+async fn fetch_info(code: &interface::code::Code) -> interface::code::Code {
     let window_info = Command::new("tmux")
         .args([
             "list-windows",
@@ -150,7 +151,7 @@ async fn run(rx: &Receiver<interface::code::Code>) {
                 );
                 log::info!("Coding in {}", &code.language);
                 'update: loop {
-                    code = fetch_info(&code);
+                    code = fetch_info(&code).await;
                     if !get_open("Discord") || load_client(&code, &mut client).await.is_err() {
                         continue 'run;
                     };
