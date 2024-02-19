@@ -1,4 +1,5 @@
 use std::{
+    env,
     io::Read,
     os::unix::net::UnixListener,
     process::{Command, Stdio},
@@ -176,7 +177,7 @@ fn listen_detach(tmux_sess: &str) -> Code {
 fn listen(tx: Sender<Code>) {
     let mut buffer = String::new();
     let port = "/tmp/dev_rpc";
-    println!("Listening on port {}", port);
+    log::info!("Listening on port {}", port);
     'main: loop {
         let code = listen_attach(port, &mut buffer);
         let sess = code.tmux_session.clone();
@@ -225,7 +226,6 @@ async fn load_client(code: &Code, client: &mut DiscordIpcClient) -> Result<(), (
     };
     let tmux = format!("#Tmux: {}", &code.tmux_session);
     let assets = Assets::new()
-        // .large_image("helix-logo");
         .large_image(Language::get_logo(&code.language))
         .large_text(&big_text)
         .small_image("helix-logo-nice")
@@ -238,9 +238,8 @@ async fn load_client(code: &Code, client: &mut DiscordIpcClient) -> Result<(), (
         activity = activity.buttons(buttons);
     }
     activity = activity.assets(assets);
-    // TODO: buttons
     client.set_activity(activity).map_err(|_| {
-        println!("Failed to load activity: trying again");
+        log::error!("Failed to load activity: trying again");
     })?;
     Ok(())
 }
@@ -299,7 +298,8 @@ fn fetch_info(code: &Code) -> Code {
         let output = awk.wait_with_output().unwrap();
         if output.status.success() {
             pane_content = str::from_utf8(&output.stdout)
-                .expect("Invalid format")
+                .map_err(|err| log::error!("error getting file path: {}", err))
+                .unwrap()
                 .replace(['▍', '│'], "")
                 .trim()
                 .to_string();
@@ -326,16 +326,14 @@ async fn run(rx: &Receiver<Code>) {
         match get_client().await {
             Ok(disc) => {
                 client = disc;
-                println!(
+                log::info!(
                     "Session {} connected: {}",
-                    &code.tmux_session, &code.attach_status
+                    &code.tmux_session,
+                    &code.attach_status
                 );
-                println!("Coding in {}", &code.language);
+                log::info!("Coding in {}", &code.language);
                 'update: loop {
                     code = fetch_info(&code);
-                    // if !get_open("Discord") {
-                    // continue 'run;
-                    // }
                     if !get_open("Discord") || load_client(&code, &mut client).await.is_err() {
                         continue 'run;
                     };
@@ -356,7 +354,7 @@ async fn run(rx: &Receiver<Code>) {
         }
     }
     let _ = client.close();
-    println!("Session {} disconnected: {}", sess, &code.detach_status);
+    log::info!("Session {} disconnected: {}", sess, &code.detach_status);
 }
 
 fn get_open(name: &str) -> bool {
@@ -364,8 +362,37 @@ fn get_open(name: &str) -> bool {
     discord.status.success()
 }
 
+fn get_home() -> String {
+    env::var("HOME").unwrap_or_default()
+}
+
+fn init_log(name: &str) {
+    let name = format!("{}/{}", get_home(), name);
+    fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "[{} {} {}] {}",
+                chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.3f"),
+                record.target(),
+                record.level(),
+                message
+            ))
+        })
+        .chain(
+            fern::log_file(&name)
+                .map_err(|err| println!("Failed to open logfile {}: {}", name, err))
+                .unwrap(),
+        )
+        .level(log::LevelFilter::Debug)
+        .apply()
+        .map_err(|err| println!("Failed to initialize logger: {}", err))
+        .unwrap();
+}
+
 #[tokio::main]
 async fn main() {
+    init_log(".cache/rise_code.log");
+    log::info!("Start log");
     let (tx, rx) = mpsc::channel::<Code>();
 
     thread::spawn(|| {
