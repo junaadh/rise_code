@@ -62,7 +62,8 @@ async fn load_client(
     Ok(())
 }
 
-async fn fetch_info(code: &interface::code::Code) -> interface::code::Code {
+async fn fetch_info(code: &interface::code::Code) -> Result<interface::code::Code, ()> {
+    thread::sleep(Duration::from_secs(3));
     let window_info = Command::new("tmux")
         .args([
             "list-windows",
@@ -72,8 +73,7 @@ async fn fetch_info(code: &interface::code::Code) -> interface::code::Code {
             "#{window_index} #{window_name}",
         ])
         .output()
-        .map_err(|_| println!("Cannot get windowindex & windowname"))
-        .unwrap();
+        .map_err(|err| log::debug!("Cannot get window_index & window_name: {err}"))?;
     let mut info = String::new();
     if window_info.status.success() {
         info = str::from_utf8(&window_info.stdout)
@@ -93,27 +93,38 @@ async fn fetch_info(code: &interface::code::Code) -> interface::code::Code {
         let pane_capture = Command::new("tmux")
             .args([
                 "capture-pane",
-                "-p",
+                "-peC",
                 "-t",
                 &format!("{}:{}", &code.tmux_session, info),
             ])
             .stdout(Stdio::piped())
             .spawn()
-            .unwrap();
+            .map_err(|err| {
+                log::warn!(
+                    "error running pane-capture on {}:{info}: {err}",
+                    &code.tmux_session
+                )
+            })?;
         let grep = Command::new("grep")
             .arg("sel")
             .stdin(Stdio::from(pane_capture.stdout.unwrap()))
             .stdout(Stdio::piped())
             .spawn()
-            .unwrap();
+            .map_err(|err| {
+                log::warn!("error running grep on {}:{info}: {err}", &code.tmux_session)
+            })?;
         let awk = Command::new("awk")
             .arg("{ print $2 }")
             .stdin(Stdio::from(grep.stdout.unwrap()))
             .stdout(Stdio::piped())
             .spawn()
-            .unwrap();
+            .map_err(|err| {
+                log::warn!("error running awk on {}:{info}: {err}", &code.tmux_session)
+            })?;
 
-        let output = awk.wait_with_output().unwrap();
+        let output = awk
+            .wait_with_output()
+            .map_err(|err| log::warn!("error getiing pane-capture | grep | awk: {err}"))?;
         if output.status.success() {
             pane_content = str::from_utf8(&output.stdout)
                 .map_err(|err| log::error!("error getting file path: {}", err))
@@ -123,26 +134,30 @@ async fn fetch_info(code: &interface::code::Code) -> interface::code::Code {
                 .to_string();
         }
     }
-    interface::code::Code::new(
+    Ok(interface::code::Code::new(
         &code.tmux_session,
         &code.language,
         &pane_content,
         &code.github,
         code.attach_status,
         code.detach_status,
-    )
+    ))
 }
 
 async fn run(rx: &Receiver<interface::code::Code>) {
-    let mut code = rx.recv().unwrap();
+    let mut code = rx.recv().map_err(|err| println!("{err}")).unwrap();
     let sess = code.tmux_session.clone();
     let mut client;
     'run: loop {
-        if !get_open("Discord") {
+        let disc_status = get_open("Discord");
+        log::info!("Check if discord is open: {disc_status}");
+        if !disc_status {
+            log::warn!("discord is closed... Waiting for connection...");
             continue 'run;
         }
         match get_client().await {
             Ok(disc) => {
+                log::info!("Succesfullu connected to client");
                 client = disc;
                 log::info!(
                     "Session {} connected: {}",
@@ -151,13 +166,16 @@ async fn run(rx: &Receiver<interface::code::Code>) {
                 );
                 log::info!("Coding in {}", &code.language);
                 'update: loop {
-                    code = fetch_info(&code).await;
-                    if !get_open("Discord") || load_client(&code, &mut client).await.is_err() {
-                        continue 'run;
-                    };
-                    match rx.recv_timeout(Duration::from_secs(1)) {
-                        Ok(cli) => code = cli,
-                        Err(_) => continue 'update,
+                    let code_res = fetch_info(&code).await;
+                    if code_res.is_ok() {
+                        code = code_res.unwrap();
+                        if !get_open("Discord") || load_client(&code, &mut client).await.is_err() {
+                            continue 'run;
+                        };
+                        match rx.recv_timeout(Duration::from_secs(1)) {
+                            Ok(cli) => code = cli,
+                            Err(_) => continue 'update,
+                        }
                     }
                     if code.detach_status {
                         let _ = client.clear_activity();

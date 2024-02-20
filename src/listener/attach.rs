@@ -1,19 +1,14 @@
-use std::{
-    io::Read,
-    os::unix::net::{UnixListener, UnixStream},
-};
+use std::{io::Read, os::unix::net::UnixStream};
 
-use crate::{interface::code::Code, listener::recieve_stream};
+use crate::interface::code::Code;
 
-use super::PORT;
+// pub fn run(listener: &UnixListener) -> Code {
+//     log::info!("Listening to attach requests on: {PORT}");
+//     let stream = recieve_stream(listener);
+//     parse_result(stream.unwrap()).unwrap()
+// }
 
-pub fn run(listener: &UnixListener) -> Code {
-    log::info!("Listening to attach requests on: {PORT}");
-    let stream = recieve_stream(listener);
-    parse_result(stream.unwrap()).unwrap()
-}
-
-fn parse_result(mut stream: UnixStream) -> Result<Code, ()> {
+pub fn parse_result(stream: &mut UnixStream) -> Result<Code, ()> {
     // get steram and parse the data in the stream to a code struct
     // code struct because the channel can send messages of code struct
     // create buffer for reading stream to string

@@ -8,6 +8,19 @@ pub struct Code {
     pub detach_status: bool,
 }
 
+impl Default for Code {
+    fn default() -> Self {
+        Self {
+            tmux_session: "".to_string(),
+            language: "".to_string(),
+            file: "".to_string(),
+            github: "".to_string(),
+            attach_status: false,
+            detach_status: true,
+        }
+    }
+}
+
 impl Code {
     pub fn new(
         tmux_session: &str,
@@ -48,13 +61,9 @@ impl Code {
         }
     }
 
-    // fn attach(mut self, cond: bool) -> Self {
-    //     self.attach_status = cond;
-    //     self
-    // }
-
-    // fn detach(mut self, cond: bool) -> Self {
-    //     self.detach_status = cond;
-    //     self
-    // }
+    pub fn disconnect(mut self) -> Self {
+        self.attach_status = false;
+        self.detach_status = true;
+        self
+    }
 }

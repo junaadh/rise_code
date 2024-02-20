@@ -1,72 +1,47 @@
 mod attach;
+mod core;
 mod detach;
 
-use std::{
-    os::unix::net::{UnixListener, UnixStream},
-    process::{Command, Stdio},
-    sync::mpsc::Sender,
-    thread,
-    time::Duration,
-};
+use std::sync::mpsc::Sender;
 
 use crate::interface::code::Code;
+
+use self::core::attach;
 
 const PORT: &str = "/tmp/dev_rpc";
 
 pub fn start(tx: Sender<Code>) {
     let listener = attach();
+    let mut session: Code = Code::default();
 
-    'main: loop {
-        let code = attach::run(&listener);
-        let session_name = code.tmux_session.clone();
-        match code.check_integ() && code.attach_status {
-            true => {
-                let _ = tx.send(code);
-            }
-            false => continue 'main,
-        }
-
-        thread::sleep(Duration::from_secs(5));
-
-        let mut bool = true;
-        while bool {
-            if session_name == detach::run(&listener) {
-                bool = false;
-            }
-        }
-    }
-}
-
-fn attach() -> UnixListener {
-    // removes existing /tmp/dev_rpc i exists
-    // if not returns error
-    // result is ignored no matter
-    let _ = Command::new("rm")
-        .arg(PORT)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    // bidn port and return the listener on the port
-    UnixListener::bind(PORT)
-        .map_err(|err| log::error!("failed to bind to socket {PORT}: {err}"))
-        .unwrap()
-}
-
-fn recieve_stream(listener: &UnixListener) -> Option<UnixStream> {
-    // get a stream from the port
     for stream in listener.incoming() {
         match stream {
-            // return stream
-            Ok(next) => {
-                return Some(next);
+            Ok(mut msg) => {
+                if !session.attach_status {
+                    log::info!("listening for attach requests on {PORT}");
+                    let res = attach::parse_result(&mut msg);
+                    match res {
+                        Ok(code) => {
+                            session = code.clone();
+                            let _ = tx.send(code);
+                        }
+                        Err(_) => continue,
+                    }
+                } else {
+                    log::info!("listening for detach requests on {PORT}");
+                    let res = detach::parse_result(&mut msg);
+                    if let Ok(str) = res {
+                        if str == session.tmux_session {
+                            session = session.disconnect();
+                            let _ = tx.send(session.clone());
+                        }
+                    }
+                }
             }
-            // log error and continue loop
             Err(err) => {
-                log::warn!("revieving stream error: {err}");
+                log::warn!("error at socket {PORT}: {err}");
                 continue;
             }
         }
     }
-    // here to handle edge cases and make compiler happy
-    None
 }
