@@ -1,11 +1,10 @@
-use std::{
-    os::unix::net::{UnixListener, UnixStream},
-    process::{Command, Stdio},
-};
+use std::process::{Command, Stdio};
+
+use tokio::net::UnixListener;
 
 use super::PORT;
 
-pub fn attach() -> UnixListener {
+pub async fn attach() -> UnixListener {
     // removes existing /tmp/dev_rpc i exists
     // if not returns error
     // result is ignored no matter

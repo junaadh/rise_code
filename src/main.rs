@@ -4,16 +4,20 @@ pub mod loader;
 
 use std::{
     env,
-    process::{Command, Stdio},
+    process::Command,
     str,
-    sync::mpsc::{self, Receiver},
-    thread,
+    // sync::mpsc::{self, Receiver, TryRecvError},
+    // thread,
     time::Duration,
 };
 
 use discord_rich_presence::{
     activity::{Activity, Assets, Button},
     DiscordIpc, DiscordIpcClient,
+};
+use tokio::{
+    sync::mpsc::{self, error::TryRecvError, Receiver},
+    time,
 };
 
 fn truncate(text: &str, max_length: usize) -> &str {
@@ -35,16 +39,17 @@ async fn load_client(
     code: &interface::code::Code,
     client: &mut DiscordIpcClient,
 ) -> Result<(), ()> {
-    let big_text = format!("Programming Language: {}", code.language);
+    let big_text = format!("Programming Language: {}", code.language.name.to_string());
     let small_text = format!("Helix Editor opened in Tmux: {}", code.tmux_session);
     let code_str = if code.file.is_empty() {
-        format!("Coding in {}", code.language)
+        format!("Coding in {}", code.language.name.to_string())
     } else {
         format!("Editing: {}", code.file)
     };
     let tmux = format!("#Tmux: {}", &code.tmux_session);
+    let img = &code.language.name.get_logo();
     let assets = Assets::new()
-        .large_image(interface::languages::Language::get_logo(&code.language))
+        .large_image(img)
         .large_text(&big_text)
         .small_image("helix-logo-nice")
         .small_text(&small_text);
@@ -52,8 +57,8 @@ async fn load_client(
         .state(truncate(&tmux, 128))
         .details(truncate(&code_str, 128));
     let buttons = vec![Button::new("View Git Repo", &code.github)];
-    if code.github.trim().contains("github") {
-        activity = activity.buttons(buttons);
+    if !code.github.trim().ends_with(".com/") {
+        // activity = activity.buttons(buttons);
     }
     activity = activity.assets(assets);
     client.set_activity(activity).map_err(|_| {
@@ -62,8 +67,9 @@ async fn load_client(
     Ok(())
 }
 
-async fn fetch_info(code: &interface::code::Code) -> Result<interface::code::Code, ()> {
-    thread::sleep(Duration::from_secs(3));
+async fn fetch_info(code: &mut interface::code::Code) -> Result<(), ()> {
+    // thread::sleep(Duration::from_secs(3));
+    time::sleep(Duration::from_secs(3)).await;
     let window_info = Command::new("tmux")
         .args([
             "list-windows",
@@ -89,6 +95,7 @@ async fn fetch_info(code: &interface::code::Code) -> Result<interface::code::Cod
             .unwrap_or("".to_string());
     }
     let mut pane_content = String::new();
+    let mut language = code.language.clone();
     if !info.is_empty() {
         let pane_capture = Command::new("tmux")
             .args([
@@ -97,100 +104,101 @@ async fn fetch_info(code: &interface::code::Code) -> Result<interface::code::Cod
                 "-t",
                 &format!("{}:{}", &code.tmux_session, info),
             ])
-            .stdout(Stdio::piped())
-            .spawn()
+            .output()
             .map_err(|err| {
                 log::warn!(
                     "error running pane-capture on {}:{info}: {err}",
                     &code.tmux_session
                 )
             })?;
-        let grep = Command::new("grep")
-            .arg("sel")
-            .stdin(Stdio::from(pane_capture.stdout.unwrap()))
-            .stdout(Stdio::piped())
-            .spawn()
-            .map_err(|err| {
-                log::warn!("error running grep on {}:{info}: {err}", &code.tmux_session)
-            })?;
-        let awk = Command::new("awk")
-            .arg("{ print $2 }")
-            .stdin(Stdio::from(grep.stdout.unwrap()))
-            .stdout(Stdio::piped())
-            .spawn()
-            .map_err(|err| {
-                log::warn!("error running awk on {}:{info}: {err}", &code.tmux_session)
-            })?;
 
-        let output = awk
-            .wait_with_output()
-            .map_err(|err| log::warn!("error getiing pane-capture | grep | awk: {err}"))?;
-        if output.status.success() {
-            pane_content = str::from_utf8(&output.stdout)
-                .map_err(|err| log::error!("error getting file path: {}", err))
-                .unwrap()
-                .replace(['▍', '│'], "")
-                .trim()
-                .to_string();
+        let vec: Vec<&str> = str::from_utf8(&pane_capture.stdout)
+            .map_err(|err| log::error!("error getting file path: {}", err))
+            .unwrap()
+            .split('\n')
+            .collect();
+
+        pane_content = vec[vec.len() - 3]
+            .split(' ')
+            .take(5)
+            .last()
+            .unwrap()
+            .trim()
+            .to_string();
+
+        let (_body, ext) = pane_content.rsplit_once('.').unwrap_or_default();
+        if !ext.is_empty() {
+            language.push_ext(ext);
+        } else {
+            language.get_max_ext();
         }
     }
-    Ok(interface::code::Code::new(
-        &code.tmux_session,
-        &code.language,
-        &pane_content,
-        &code.github,
-        code.attach_status,
-        code.detach_status,
-    ))
+    code.language(language);
+    code.file(&pane_content);
+    Ok(())
 }
 
-async fn run(rx: &Receiver<interface::code::Code>) {
-    let mut code = rx.recv().map_err(|err| println!("{err}")).unwrap();
-    let sess = code.tmux_session.clone();
-    let mut client;
+async fn run(mut rx: Receiver<interface::code::Code>) {
+    let mut code = interface::code::Code::default();
     'run: loop {
+        match rx.try_recv() {
+            Ok(rcv) => code = rcv,
+            Err(err) => match err {
+                TryRecvError::Empty => {
+                    if !code.attach_status {
+                        tokio::time::sleep(Duration::from_secs(3)).await;
+                        continue;
+                    }
+                }
+                _ => {
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    continue;
+                }
+            },
+        }
+        let sess = code.tmux_session.clone();
+        let mut client;
         let disc_status = get_open("Discord");
         log::info!("Check if discord is open: {disc_status}");
         if !disc_status {
             log::warn!("discord is closed... Waiting for connection...");
+            // thread::sleep(Duration::from_secs(4));
+            time::sleep(Duration::from_secs(4)).await;
             continue 'run;
         }
         match get_client().await {
             Ok(disc) => {
-                log::info!("Succesfullu connected to client");
+                log::info!("Succesfully connected to client");
                 client = disc;
-                log::info!(
-                    "Session {} connected: {}",
-                    &code.tmux_session,
-                    &code.attach_status
-                );
-                log::info!("Coding in {}", &code.language);
+                log::info!("Session {} connected", &code.tmux_session,);
+                log::info!("Coding in {}", &code.language.name.to_string());
                 'update: loop {
-                    let code_res = fetch_info(&code).await;
+                    let code_res = fetch_info(&mut code).await;
                     if code_res.is_ok() {
-                        code = code_res.unwrap();
                         if !get_open("Discord") || load_client(&code, &mut client).await.is_err() {
                             continue 'run;
                         };
-                        match rx.recv_timeout(Duration::from_secs(1)) {
+                        match rx.try_recv() {
                             Ok(cli) => code = cli,
                             Err(_) => continue 'update,
                         }
                     }
                     if code.detach_status {
                         let _ = client.clear_activity();
-                        break 'run;
+                        break 'update;
                     }
                 }
             }
-            Err(_) => {
-                thread::sleep(Duration::from_secs(5));
+            Err(err) => {
+                log::error!("{err}");
+                // thread::sleep(Duration::from_secs(5));
+                time::sleep(Duration::from_secs(5)).await;
                 continue 'run;
             }
         }
+        let _ = client.close();
+        log::info!("Session {} disconnected: {}", sess, &code.detach_status);
     }
-    let _ = client.close();
-    log::info!("Session {} disconnected: {}", sess, &code.detach_status);
 }
 
 fn get_open(name: &str) -> bool {
@@ -207,10 +215,10 @@ fn init_log(name: &str) {
     fern::Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
-                "[{} {} {}] {}",
-                chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.3f"),
-                record.target(),
+                "{} [{}]@{} : {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
                 record.level(),
+                record.target(),
                 message
             ))
         })
@@ -229,14 +237,11 @@ fn init_log(name: &str) {
 async fn main() {
     init_log(".cache/rise_code.log");
     log::info!("Start log");
-    let (tx, rx) = mpsc::channel::<interface::code::Code>();
+    let (tx, rx) = mpsc::channel::<interface::code::Code>(1);
 
-    thread::spawn(|| {
-        // listen(tx);
-        listener::start(tx);
+    tokio::spawn(async move {
+        listener::start(tx).await;
     });
 
-    loop {
-        run(&rx).await;
-    }
+    run(rx).await;
 }
