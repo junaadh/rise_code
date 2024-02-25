@@ -10,4 +10,5 @@ chrono = "0.4.34"
 discord-rich-presence = "0.2.3"
 fern = { version = "0.6.2", features = ["chrono", "date-based"] }
 log = "0.4.20"
+regex = "1.10.3"
 tokio = { version = "1.36.0", features = ["full"] }

@@ -1,3 +1,3 @@
-mod client;
-mod helpers;
-mod parser;
+pub mod client;
+pub mod helpers;
+pub mod parser;

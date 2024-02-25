@@ -1,3 +1,4 @@
+pub mod commands;
 pub mod interface;
 pub mod listener;
 pub mod loader;
@@ -58,7 +59,7 @@ async fn load_client(
         .details(truncate(&code_str, 128));
     let buttons = vec![Button::new("View Git Repo", &code.github)];
     if !code.github.trim().ends_with(".com/") {
-        // activity = activity.buttons(buttons);
+        activity = activity.buttons(buttons);
     }
     activity = activity.assets(assets);
     client.set_activity(activity).map_err(|_| {
@@ -70,63 +71,18 @@ async fn load_client(
 async fn fetch_info(code: &mut interface::code::Code) -> Result<(), ()> {
     // thread::sleep(Duration::from_secs(3));
     time::sleep(Duration::from_secs(3)).await;
-    let window_info = Command::new("tmux")
-        .args([
-            "list-windows",
-            "-t",
-            &code.tmux_session,
-            "-F",
-            "#{window_index} #{window_name}",
-        ])
-        .output()
-        .map_err(|err| log::debug!("Cannot get window_index & window_name: {err}"))?;
-    let mut info = String::new();
-    if window_info.status.success() {
-        info = str::from_utf8(&window_info.stdout)
-            .expect("Invalid format")
-            .split('\n')
-            .find_map(|line| {
-                if line.contains("hx") {
-                    line.split_whitespace().next().map(|str| str.to_owned())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or("".to_string());
-    }
-    let mut pane_content = String::new();
+    let info = loader::parser::get_window_id(&code.tmux_session).unwrap();
     let mut language = code.language.clone();
-    if !info.is_empty() {
-        let pane_capture = Command::new("tmux")
-            .args([
-                "capture-pane",
-                "-peC",
-                "-t",
-                &format!("{}:{}", &code.tmux_session, info),
-            ])
-            .output()
-            .map_err(|err| {
-                log::warn!(
-                    "error running pane-capture on {}:{info}: {err}",
-                    &code.tmux_session
-                )
-            })?;
+    let pane_content = if !info.is_empty() {
+        loader::parser::get_pane_content(info, code)
+    } else {
+        "".to_string()
+    };
+    let mut active_file = String::new();
 
-        let vec: Vec<&str> = str::from_utf8(&pane_capture.stdout)
-            .map_err(|err| log::error!("error getting file path: {}", err))
-            .unwrap()
-            .split('\n')
-            .collect();
-
-        pane_content = vec[vec.len() - 3]
-            .split(' ')
-            .take(5)
-            .last()
-            .unwrap()
-            .trim()
-            .to_string();
-
-        let (_body, ext) = pane_content.rsplit_once('.').unwrap_or_default();
+    if !pane_content.is_empty() {
+        active_file = loader::parser::parse_pane(pane_content);
+        let (_body, ext) = active_file.rsplit_once('.').unwrap_or_default();
         if !ext.is_empty() {
             language.push_ext(ext);
         } else {
@@ -134,7 +90,7 @@ async fn fetch_info(code: &mut interface::code::Code) -> Result<(), ()> {
         }
     }
     code.language(language);
-    code.file(&pane_content);
+    code.file(&active_file);
     Ok(())
 }
 
