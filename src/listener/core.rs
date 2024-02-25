@@ -18,22 +18,3 @@ pub async fn attach() -> UnixListener {
         .map_err(|err| log::error!("failed to bind to socket {PORT}: {err}"))
         .unwrap()
 }
-
-// pub fn recieve_stream(listener: &UnixListener) -> Option<UnixStream> {
-//     // get a stream from the port
-//     for stream in listener.incoming() {
-//         match stream {
-//             // return stream
-//             Ok(next) => {
-//                 return Some(next);
-//             }
-//             // log error and continue loop
-//             Err(err) => {
-//                 log::warn!("revieving stream error: {err}");
-//                 continue;
-//             }
-//         }
-//     }
-//     // here to handle edge cases and make compiler happy
-//     None
-// }

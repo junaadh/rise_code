@@ -1,14 +1,5 @@
-use tokio::{io::AsyncReadExt, net::UnixStream};
-
-// use std::{io::Read, os::unix::net::UnixStream};
-
 use crate::interface::{code::Code, languages::LanguageExt};
-
-// pub fn run(listener: &UnixListener) -> Code {
-//     log::info!("Listening to attach requests on: {PORT}");
-//     let stream = recieve_stream(listener);
-//     parse_result(stream.unwrap()).unwrap()
-// }
+use tokio::{io::AsyncReadExt, net::UnixStream};
 
 pub async fn parse_result(stream: &mut UnixStream) -> Result<Code, ()> {
     // get steram and parse the data in the stream to a code struct

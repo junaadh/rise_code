@@ -1,11 +1,3 @@
-// use super::recieve_stream;
-
-// pub fn run(listener: &UnixListener) -> String {
-//     log::info!("Waiting for detach request:");
-//     let stream = recieve_stream(listener);
-//     parse_result(stream.unwrap()).unwrap()
-// }
-
 use tokio::{io::AsyncReadExt, net::UnixStream};
 
 // use std::{io::Read, os::unix::net::UnixStream};

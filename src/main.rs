@@ -3,14 +3,7 @@ pub mod interface;
 pub mod listener;
 pub mod loader;
 
-use std::{
-    env,
-    process::Command,
-    str,
-    // sync::mpsc::{self, Receiver, TryRecvError},
-    // thread,
-    time::Duration,
-};
+use std::{env, process::Command, str, time::Duration};
 
 use discord_rich_presence::{
     activity::{Activity, Assets, Button},
@@ -129,6 +122,7 @@ async fn run(mut rx: Receiver<interface::code::Code>) {
                 log::info!("Session {} connected", &code.tmux_session,);
                 log::info!("Coding in {}", &code.language.name.to_string());
                 'update: loop {
+                    tokio::time::sleep(Duration::from_millis(300)).await;
                     let code_res = fetch_info(&mut code).await;
                     if code_res.is_ok() {
                         if !get_open("Discord") || load_client(&code, &mut client).await.is_err() {

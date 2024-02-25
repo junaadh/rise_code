@@ -1,15 +1,7 @@
 mod attach;
 mod core;
 mod detach;
-
-use std::time::Duration;
-
-use log::warn;
-use tokio::{
-    // net::{UnixListener, UnixStream},
-    sync::mpsc::Sender,
-    time,
-};
+use tokio::sync::mpsc::Sender;
 
 use crate::interface::code::Code;
 
@@ -61,10 +53,7 @@ pub async fn start(tx: Sender<Code>) {
         tokio::select! {
         // Accept incoming connection
             Ok((mut stream, _)) = listener.accept() => {
-                log::info!("Connection accepted from {:?}", stream.peer_addr());
-                // Clone session for each request
-                // let mut cloned_session = session.clone();
-
+                log::info!("Connection accepted");
                 // Handle the request based on session state
                 if !session.attach_status {
                     log::info!("Listening for attach requests on {}", PORT);

@@ -3,6 +3,7 @@ use std::process::Command;
 
 use crate::interface::code::Code;
 
+#[allow(clippy::result_unit_err)]
 pub fn get_window_id(session: &str) -> Result<String, ()> {
     let window_info = Command::new("tmux")
         .args([
