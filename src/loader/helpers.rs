@@ -20,9 +20,12 @@ pub fn setup_log(name: &str) {
     fern::Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
-                "{} [{}] {}",
+                "{} [{}] @ {} -{:?}:{:?}- {}",
                 chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
                 record.level(),
+                record.target(),
+                record.file().unwrap_or_default(),
+                record.line().unwrap_or_default(),
                 message
             ))
         })
@@ -35,6 +38,7 @@ pub fn setup_log(name: &str) {
         .apply()
         .map_err(|err| println!("Failed to initialize logger: {}", err))
         .unwrap();
+    log::info!("Start logging @ {name}", name = &name);
 }
 
 pub fn get_open(name: &str) -> bool {

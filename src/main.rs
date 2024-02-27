@@ -3,31 +3,17 @@ pub mod interface;
 pub mod listener;
 pub mod loader;
 
-use std::{env, process::Command, str, time::Duration};
+use std::time::Duration;
 
 use discord_rich_presence::{
     activity::{Activity, Assets, Button},
     DiscordIpc, DiscordIpcClient,
 };
+use dotenv::dotenv;
 use tokio::{
     sync::mpsc::{self, error::TryRecvError, Receiver},
     time,
 };
-
-fn truncate(text: &str, max_length: usize) -> &str {
-    match text.char_indices().nth(max_length) {
-        Some((idx, _)) => &text[..idx],
-        None => text,
-    }
-}
-
-async fn get_client() -> Result<DiscordIpcClient, String> {
-    let mut client = DiscordIpcClient::new("1208484529510154260").expect("invalid client id");
-    client
-        .connect()
-        .map_err(|_| "Failed at connecting to discord client".to_string())?;
-    Ok(client)
-}
 
 async fn load_client(
     code: &interface::code::Code,
@@ -48,8 +34,8 @@ async fn load_client(
         .small_image("helix-logo-nice")
         .small_text(&small_text);
     let mut activity = Activity::new()
-        .state(truncate(&tmux, 128))
-        .details(truncate(&code_str, 128));
+        .state(loader::helpers::truncate(&tmux, 128))
+        .details(loader::helpers::truncate(&code_str, 128));
     let buttons = vec![Button::new("View Git Repo", &code.github)];
     if !code.github.trim().ends_with(".com/") {
         activity = activity.buttons(buttons);
@@ -62,9 +48,8 @@ async fn load_client(
 }
 
 async fn fetch_info(code: &mut interface::code::Code) -> Result<(), ()> {
-    // thread::sleep(Duration::from_secs(3));
     time::sleep(Duration::from_secs(3)).await;
-    let info = loader::parser::get_window_id(&code.tmux_session).unwrap();
+    let info = loader::parser::get_window_id(&code.tmux_session).unwrap_or_default();
     let mut language = code.language.clone();
     let pane_content = if !info.is_empty() {
         loader::parser::get_pane_content(info, code)
@@ -100,22 +85,21 @@ async fn run(mut rx: Receiver<interface::code::Code>) {
                     }
                 }
                 _ => {
-                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    tokio::time::sleep(Duration::from_secs(4)).await;
                     continue;
                 }
             },
         }
         let sess = code.tmux_session.clone();
         let mut client;
-        let disc_status = get_open("Discord");
+        let disc_status = loader::helpers::get_open("Discord");
         log::info!("Check if discord is open: {disc_status}");
         if !disc_status {
             log::warn!("discord is closed... Waiting for connection...");
-            // thread::sleep(Duration::from_secs(4));
             time::sleep(Duration::from_secs(4)).await;
             continue 'run;
         }
-        match get_client().await {
+        match loader::client::get_client().await {
             Ok(disc) => {
                 log::info!("Succesfully connected to client");
                 client = disc;
@@ -125,7 +109,9 @@ async fn run(mut rx: Receiver<interface::code::Code>) {
                     tokio::time::sleep(Duration::from_millis(300)).await;
                     let code_res = fetch_info(&mut code).await;
                     if code_res.is_ok() {
-                        if !get_open("Discord") || load_client(&code, &mut client).await.is_err() {
+                        if !loader::helpers::get_open("Discord")
+                            || load_client(&code, &mut client).await.is_err()
+                        {
                             continue 'run;
                         };
                         match rx.try_recv() {
@@ -151,42 +137,10 @@ async fn run(mut rx: Receiver<interface::code::Code>) {
     }
 }
 
-fn get_open(name: &str) -> bool {
-    let discord = Command::new("pgrep").arg(name).output().unwrap();
-    discord.status.success()
-}
-
-fn get_home() -> String {
-    env::var("HOME").unwrap_or_default()
-}
-
-fn init_log(name: &str) {
-    let name = format!("{}/{}", get_home(), name);
-    fern::Dispatch::new()
-        .format(|out, message, record| {
-            out.finish(format_args!(
-                "{} [{}]@{} : {}",
-                chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
-                record.level(),
-                record.target(),
-                message
-            ))
-        })
-        .chain(
-            fern::log_file(&name)
-                .map_err(|err| println!("Failed to open logfile {}: {}", name, err))
-                .unwrap(),
-        )
-        .level(log::LevelFilter::Debug)
-        .apply()
-        .map_err(|err| println!("Failed to initialize logger: {}", err))
-        .unwrap();
-}
-
 #[tokio::main]
 async fn main() {
-    init_log(".cache/rise_code.log");
-    log::info!("Start log");
+    dotenv().ok();
+    loader::helpers::setup_log(".cache/rise_code.log");
     let (tx, rx) = mpsc::channel::<interface::code::Code>(1);
 
     tokio::spawn(async move {

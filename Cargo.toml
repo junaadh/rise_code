@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 chrono = "0.4.34"
 discord-rich-presence = "0.2.3"
+dotenv = "0.15.0"
 fern = { version = "0.6.2", features = ["chrono", "date-based"] }
 log = "0.4.20"
 regex = "1.10.3"
