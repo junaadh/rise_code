@@ -1,15 +1,13 @@
-pub mod commands;
 pub mod interface;
 pub mod listener;
 pub mod loader;
 
-use std::time::Duration;
+use std::{env, time::Duration};
 
 use discord_rich_presence::{
     activity::{Activity, Assets, Button},
     DiscordIpc, DiscordIpcClient,
 };
-use dotenv::dotenv;
 use tokio::{
     sync::mpsc::{self, error::TryRecvError, Receiver},
     time,
@@ -41,8 +39,8 @@ async fn load_client(
         activity = activity.buttons(buttons);
     }
     activity = activity.assets(assets);
-    client.set_activity(activity).map_err(|_| {
-        log::error!("Failed to load activity: trying again");
+    client.set_activity(activity).map_err(|err| {
+        log::error!("Failed to load activity: trying again {err}");
     })?;
     Ok(())
 }
@@ -74,18 +72,24 @@ async fn fetch_info(code: &mut interface::code::Code) -> Result<(), ()> {
 
 async fn run(mut rx: Receiver<interface::code::Code>) {
     let mut code = interface::code::Code::default();
+    let client_id = env::var("clientid")
+        .map_err(|err| log::error!("Unable to fetch client_id: {err}"))
+        .unwrap_or_default();
+    if !client_id.is_empty() {
+        log::info!("Successfully fetched client_id");
+    }
     'run: loop {
         match rx.try_recv() {
             Ok(rcv) => code = rcv,
             Err(err) => match err {
                 TryRecvError::Empty => {
                     if !code.attach_status {
-                        tokio::time::sleep(Duration::from_secs(3)).await;
+                        sleep!(3);
                         continue;
                     }
                 }
                 _ => {
-                    tokio::time::sleep(Duration::from_secs(4)).await;
+                    sleep!(4);
                     continue;
                 }
             },
@@ -93,29 +97,35 @@ async fn run(mut rx: Receiver<interface::code::Code>) {
         let sess = code.tmux_session.clone();
         let mut client;
         let disc_status = loader::helpers::get_open("Discord");
-        log::info!("Check if discord is open: {disc_status}");
+        log::info!("Checking if Discord is open...");
         if !disc_status {
-            log::warn!("discord is closed... Waiting for connection...");
-            time::sleep(Duration::from_secs(4)).await;
+            log::warn!("Discord is closed... Waiting for connection...");
+            sleep!(4);
             continue 'run;
         }
-        match loader::client::get_client().await {
+        log::info!("Discord open. Proceeding..,");
+        log::info!("Connecting to Discord IPC client...");
+        match loader::client::get_client(&client_id).await {
             Ok(disc) => {
                 log::info!("Succesfully connected to client");
                 client = disc;
                 log::info!("Session {} connected", &code.tmux_session,);
                 log::info!("Coding in {}", &code.language.name.to_string());
                 'update: loop {
-                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    sleep_ms!(300);
                     let code_res = fetch_info(&mut code).await;
                     if code_res.is_ok() {
                         if !loader::helpers::get_open("Discord")
                             || load_client(&code, &mut client).await.is_err()
                         {
+                            log::warn!("Discord exited or ipc client exited unexpectedly... Trying again...");
                             continue 'run;
                         };
                         match rx.try_recv() {
-                            Ok(cli) => code = cli,
+                            Ok(cli) => {
+                                log::info!("Recieved another request...");
+                                code = cli;
+                            }
                             Err(_) => continue 'update,
                         }
                     }
@@ -127,19 +137,18 @@ async fn run(mut rx: Receiver<interface::code::Code>) {
             }
             Err(err) => {
                 log::error!("{err}");
-                // thread::sleep(Duration::from_secs(5));
-                time::sleep(Duration::from_secs(5)).await;
+                sleep!(5);
                 continue 'run;
             }
         }
         let _ = client.close();
-        log::info!("Session {} disconnected: {}", sess, &code.detach_status);
+        log::info!("Session {} disconnected", sess);
     }
 }
 
+#[cfg(unix)]
 #[tokio::main]
 async fn main() {
-    dotenv().ok();
     loader::helpers::setup_log(".cache/rise_code.log");
     let (tx, rx) = mpsc::channel::<interface::code::Code>(1);
 

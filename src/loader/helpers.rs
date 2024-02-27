@@ -1,8 +1,8 @@
-use std::{env, process::Command};
+use std::{env, fs, process::Command};
 
 use regex::Regex;
 
-use crate::commands;
+use crate::{awk, grep};
 
 pub fn truncate(text: &str, max_length: usize) -> &str {
     match text.char_indices().nth(max_length) {
@@ -17,6 +17,21 @@ fn get_home() -> String {
 
 pub fn setup_log(name: &str) {
     let name = format!("{}/{name}", get_home());
+
+    if let Ok(file) = fs::metadata(&name) {
+        println!("Checking {name} integrity...");
+        if file.len() > 20 * 1024 * 1024 {
+            eprintln!(
+                "log file exceeds 20mb... Removing file {name}...",
+                name = &name
+            );
+            fs::remove_file(&name)
+                .map_err(|err| eprintln!("[failed]\n{err}"))
+                .unwrap();
+        }
+        println!("[OK]");
+    }
+
     fern::Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
@@ -51,18 +66,18 @@ pub fn get_open(name: &str) -> bool {
 }
 
 pub fn get_filenames(text: String) -> String {
-    let ins_pos = commands::grep::grep(&text, "INS");
-    let nor_pos = commands::grep::grep(&text, "NOR");
+    let nor_pos = grep!(&text, "NOR");
+    let ins_pos = grep!(&text, "INS");
     let active = if ins_pos == -1 { nor_pos } else { ins_pos };
 
     let pattern = r#"^*(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+(?:\.[a-zA-Z]+)?*$"#;
     let re = Regex::new(pattern)
         .map_err(|err| println!("Cannot log: {err}"))
         .unwrap();
-    let mut file = commands::awk::awk(&text, active + 1);
+    let mut file = awk!(&text, active + 1);
     // check active + 2
     if !re.is_match(&file) {
-        file = commands::awk::awk(&text, active + 2);
+        file = awk!(&text, active + 2);
     }
 
     // make sure active + 2 is filename if not return empty string
