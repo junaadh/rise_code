@@ -96,7 +96,7 @@ async fn run(mut rx: Receiver<interface::code::Code>) {
         }
         let sess = code.tmux_session.clone();
         let mut client;
-        let disc_status = loader::helpers::get_open("Discord");
+        let disc_status = open!("Discord");
         log::info!("Checking if Discord is open...");
         if !disc_status {
             log::warn!("Discord is closed... Waiting for connection...");
@@ -115,9 +115,7 @@ async fn run(mut rx: Receiver<interface::code::Code>) {
                     sleep_ms!(300);
                     let code_res = fetch_info(&mut code).await;
                     if code_res.is_ok() {
-                        if !loader::helpers::get_open("Discord")
-                            || load_client(&code, &mut client).await.is_err()
-                        {
+                        if !open!("Discord") || load_client(&code, &mut client).await.is_err() {
                             log::warn!("Discord exited or ipc client exited unexpectedly... Trying again...");
                             continue 'run;
                         };

@@ -36,3 +36,22 @@ macro_rules! awk {
             .to_string()
     };
 }
+
+#[macro_export]
+macro_rules! open {
+    ($name: expr) => {
+        std::process::Command::new("pgrep")
+            .arg($name)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    };
+}
+
+#[macro_export]
+macro_rules! home {
+    () => {
+        std::env::var("HOME").unwrap_or_default()
+    };
+}

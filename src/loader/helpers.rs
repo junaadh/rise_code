@@ -1,8 +1,8 @@
-use std::{env, fs, process::Command};
+use std::fs;
 
-use regex::Regex;
+use super::traits::RegexMatcher;
 
-use crate::{awk, grep};
+use crate::{awk, grep, home};
 
 pub fn truncate(text: &str, max_length: usize) -> &str {
     match text.char_indices().nth(max_length) {
@@ -11,12 +11,8 @@ pub fn truncate(text: &str, max_length: usize) -> &str {
     }
 }
 
-fn get_home() -> String {
-    env::var("HOME").unwrap_or_default()
-}
-
 pub fn setup_log(name: &str) {
-    let name = format!("{}/{name}", get_home());
+    let name = format!("{}/{name}", home!());
 
     if let Ok(file) = fs::metadata(&name) {
         println!("Checking {name} integrity...");
@@ -56,32 +52,20 @@ pub fn setup_log(name: &str) {
     log::info!("Start logging @ {name}", name = &name);
 }
 
-pub fn get_open(name: &str) -> bool {
-    Command::new("pgrep")
-        .arg(name)
-        .output()
-        .unwrap()
-        .status
-        .success()
-}
-
 pub fn get_filenames(text: String) -> String {
     let nor_pos = grep!(&text, "NOR");
     let ins_pos = grep!(&text, "INS");
     let active = if ins_pos == -1 { nor_pos } else { ins_pos };
 
     let pattern = r#"^*(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+(?:\.[a-zA-Z]+)?*$"#;
-    let re = Regex::new(pattern)
-        .map_err(|err| println!("Cannot log: {err}"))
-        .unwrap();
     let mut file = awk!(&text, active + 1);
     // check active + 2
-    if !re.is_match(&file) {
+    if !file.regex(pattern) {
         file = awk!(&text, active + 2);
     }
 
     // make sure active + 2 is filename if not return empty string
-    if !re.is_match(&file) {
+    if !file.regex(pattern) {
         file = "".to_string()
     }
     file

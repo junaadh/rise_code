@@ -1,4 +1,7 @@
-use crate::interface::{code::Code, languages::LanguageExt};
+use crate::{
+    interface::{code::Code, languages::LanguageExt},
+    loader::traits::UnwrapAndLog,
+};
 use tokio::{io::AsyncReadExt, net::UnixStream};
 
 pub async fn parse_result(stream: &mut UnixStream) -> Result<Code, ()> {
@@ -15,28 +18,16 @@ pub async fn parse_result(stream: &mut UnixStream) -> Result<Code, ()> {
     let mut parts = buf.trim().split(':');
 
     // TODO: try to check if can match with serde
-    let session_name = parts.next().unwrap_or_else(|| {
-        log::warn!("session name returned none");
-        ""
-    });
-    let language = parts.next().unwrap_or_else(|| {
-        log::warn!("language returned none");
-        ""
-    });
+    let session_name = parts.next().unwrap_log("Session name returned none");
+    let language = parts.next().unwrap_log("language returned none");
     let mut def_lang = LanguageExt::default();
     def_lang.push(language);
 
-    let file_name = parts.next().unwrap_or_else(|| {
-        log::warn!("file name returned none");
-        ""
-    });
+    let file_name = parts.next().unwrap_log("file name returned none");
     let repo_name = parts
         .next()
         .map(|repo| format!("https://github.com/{repo}"))
-        .unwrap_or_else(|| {
-            log::warn!("repo name returned none");
-            "https://".to_string()
-        });
+        .unwrap_log_or("repo name returned none", "https://".to_string());
     Ok(Code::new(
         session_name,
         def_lang,
