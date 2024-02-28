@@ -2,17 +2,10 @@ use std::fs;
 
 use super::traits::RegexMatcher;
 
-use crate::{awk, grep, home};
-
-pub fn truncate(text: &str, max_length: usize) -> &str {
-    match text.char_indices().nth(max_length) {
-        Some((idx, _)) => &text[..idx],
-        None => text,
-    }
-}
+use crate::{awk, envvar, grep};
 
 pub fn setup_log(name: &str) {
-    let name = format!("{}/{name}", home!());
+    let name = format!("{}/{name}", envvar!());
 
     if let Ok(file) = fs::metadata(&name) {
         println!("Checking {name} integrity...");

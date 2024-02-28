@@ -1,3 +1,7 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::loader::traits::TimeKeeper;
+
 use super::languages::LanguageExt;
 
 #[derive(Debug, Clone)]
@@ -8,6 +12,7 @@ pub struct Code {
     pub github: String,
     pub attach_status: bool,
     pub detach_status: bool,
+    pub duration: i64,
 }
 
 impl Default for Code {
@@ -19,6 +24,7 @@ impl Default for Code {
             github: "".to_string(),
             attach_status: false,
             detach_status: true,
+            duration: 0,
         }
     }
 }
@@ -39,6 +45,10 @@ impl Code {
             github: github.to_string(),
             attach_status,
             detach_status,
+            duration: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64,
         }
     }
 
@@ -57,12 +67,19 @@ impl Code {
             github: "".to_string(),
             attach_status: false,
             detach_status,
+            duration: 0,
         }
     }
 
     pub fn disconnect(&mut self) {
         self.attach_status = false;
         self.detach_status = true;
+        let duration = self.duration;
+        let time_now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        self.duration = time_now - duration;
     }
 
     pub fn language(&mut self, language: LanguageExt) {
@@ -80,5 +97,20 @@ impl Code {
         self.github = code.github.clone();
         self.attach_status = code.attach_status;
         self.detach_status = code.detach_status;
+        self.duration = code.duration;
+    }
+}
+
+impl TimeKeeper for Code {
+    fn elapsed(&self) -> String {
+        match self.duration {
+            0..=59 => format!("Coded for {} secs", self.duration),
+            _ => format!(
+                "Coded for {hrs}:{mins}:{secs}",
+                hrs = &self.duration / 3600,
+                mins = (&self.duration % 3600) / 60,
+                secs = &self.duration / 60
+            ),
+        }
     }
 }

@@ -1,14 +1,14 @@
 #[macro_export]
 macro_rules! sleep {
     ($time: tt) => {
-        tokio::time::sleep(Duration::from_secs($time)).await
+        tokio::time::sleep(std::time::Duration::from_secs($time)).await
     };
 }
 
 #[macro_export]
 macro_rules! sleep_ms {
     ($time: tt) => {
-        tokio::time::sleep(Duration::from_millis($time)).await
+        tokio::time::sleep(std::time::Duration::from_millis($time)).await
     };
 }
 
@@ -50,8 +50,13 @@ macro_rules! open {
 }
 
 #[macro_export]
-macro_rules! home {
+macro_rules! envvar {
     () => {
         std::env::var("HOME").unwrap_or_default()
+    };
+    ($name: expr) => {
+        std::env::var($name)
+            .map_err(|err| log::error!("{}", err))
+            .unwrap_or_default()
     };
 }

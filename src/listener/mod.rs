@@ -3,7 +3,7 @@ mod core;
 mod detach;
 use tokio::sync::mpsc::Sender;
 
-use crate::interface::code::Code;
+use crate::{interface::code::Code, loader::traits::TimeKeeper};
 
 const PORT: &str = "/tmp/dev_rpc";
 
@@ -32,6 +32,7 @@ pub async fn start(tx: Sender<Code>) {
                     if let Ok(str) = detach::parse_result(&mut stream).await {
                         if str == session.tmux_session {
                             session.disconnect();
+                            log::info!("{}",session.elapsed());
                             let _ = tx.send(session.clone()).await;
                         }
                     }

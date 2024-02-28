@@ -2,16 +2,12 @@ pub mod interface;
 pub mod listener;
 pub mod loader;
 
-use std::{env, time::Duration};
-
 use discord_rich_presence::{
-    activity::{Activity, Assets, Button},
+    activity::{Activity, Assets, Button, Timestamps},
     DiscordIpc, DiscordIpcClient,
 };
-use tokio::{
-    sync::mpsc::{self, error::TryRecvError, Receiver},
-    time,
-};
+use loader::traits::RiseFormat;
+use tokio::sync::mpsc::{self, error::TryRecvError, Receiver};
 
 async fn load_client(
     code: &interface::code::Code,
@@ -31,14 +27,15 @@ async fn load_client(
         .large_text(&big_text)
         .small_image("helix-logo-nice")
         .small_text(&small_text);
+    let stamps = Timestamps::new().start(code.duration);
     let mut activity = Activity::new()
-        .state(loader::helpers::truncate(&tmux, 128))
-        .details(loader::helpers::truncate(&code_str, 128));
+        .state(tmux.truncate(128))
+        .details(code_str.truncate(128));
     let buttons = vec![Button::new("View Git Repo", &code.github)];
     if !code.github.trim().ends_with(".com/") {
         activity = activity.buttons(buttons);
     }
-    activity = activity.assets(assets);
+    activity = activity.assets(assets).timestamps(stamps);
     client.set_activity(activity).map_err(|err| {
         log::error!("Failed to load activity: trying again {err}");
     })?;
@@ -46,7 +43,7 @@ async fn load_client(
 }
 
 async fn fetch_info(code: &mut interface::code::Code) -> Result<(), ()> {
-    time::sleep(Duration::from_secs(3)).await;
+    sleep!(5);
     let info = loader::parser::get_window_id(&code.tmux_session).unwrap_or_default();
     let mut language = code.language.clone();
     let pane_content = if !info.is_empty() {
@@ -72,9 +69,7 @@ async fn fetch_info(code: &mut interface::code::Code) -> Result<(), ()> {
 
 async fn run(mut rx: Receiver<interface::code::Code>) {
     let mut code = interface::code::Code::default();
-    let client_id = env::var("clientid")
-        .map_err(|err| log::error!("Unable to fetch client_id: {err}"))
-        .unwrap_or_default();
+    let client_id = envvar!("clientid");
     if !client_id.is_empty() {
         log::info!("Successfully fetched client_id");
     }

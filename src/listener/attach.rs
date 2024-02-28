@@ -1,6 +1,6 @@
 use crate::{
     interface::{code::Code, languages::LanguageExt},
-    loader::traits::UnwrapAndLog,
+    loader::traits::{UnwrapAndLog, UnwrapAndLogOr},
 };
 use tokio::{io::AsyncReadExt, net::UnixStream};
 
