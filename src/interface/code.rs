@@ -105,11 +105,16 @@ impl TimeKeeper for Code {
     fn elapsed(&self) -> String {
         match self.duration {
             0..=59 => format!("Coded for {} secs", self.duration),
+            60..=3599 => format!(
+                "Coded for {mins}:{secs:02}",
+                mins = &self.duration / 60,
+                secs = &self.duration % 60
+            ),
             _ => format!(
-                "Coded for {hrs}:{mins}:{secs}",
+                "Coded for {hrs}:{mins:02}:{secs:02}",
                 hrs = &self.duration / 3600,
                 mins = (&self.duration % 3600) / 60,
-                secs = &self.duration / 60
+                secs = &self.duration % 60
             ),
         }
     }
