@@ -1,3 +1,4 @@
+pub mod events;
 pub mod interface;
 pub mod listener;
 pub mod loader;
@@ -6,6 +7,7 @@ use discord_rich_presence::{
     activity::{Activity, Assets, Button, Timestamps},
     DiscordIpc, DiscordIpcClient,
 };
+use events::REvents;
 use loader::traits::RiseFormat;
 use tokio::sync::mpsc::{self, error::TryRecvError, Receiver};
 
@@ -71,7 +73,7 @@ async fn run(mut rx: Receiver<interface::code::Code>) {
     let mut code = interface::code::Code::default();
     let client_id = envvar!("clientid");
     if !client_id.is_empty() {
-        log::info!("Successfully fetched client_id");
+        REvents::FetchClientId.flush(None);
     }
     'run: loop {
         match rx.try_recv() {
@@ -89,34 +91,32 @@ async fn run(mut rx: Receiver<interface::code::Code>) {
                 }
             },
         }
-        let sess = code.tmux_session.clone();
         let mut client;
         let disc_status = open!("Discord");
-        log::info!("Checking if Discord is open...");
+        REvents::CheckDiscordStatus.flush(None);
         if !disc_status {
-            log::warn!("Discord is closed... Waiting for connection...");
+            REvents::DiscordClosed.eflush(None);
             sleep!(4);
             continue 'run;
         }
-        log::info!("Discord open. Proceeding..,");
-        log::info!("Connecting to Discord IPC client...");
+        REvents::DiscordOpen.flush(None);
+        REvents::ConnectingIpcClient.flush(None);
         match loader::client::get_client(&client_id).await {
             Ok(disc) => {
-                log::info!("Succesfully connected to client");
+                REvents::IpcConnectionSuccess.flush(None);
                 client = disc;
-                log::info!("Session {} connected", &code.tmux_session,);
-                log::info!("Coding in {}", &code.language.name.to_string());
+                REvents::SessionStatus.flush(Some(format!("{} entered", code.tmux_session)));
+                REvents::SessionLanguage.flush(Some(code.language.get_max().to_string()));
                 'update: loop {
                     sleep_ms!(300);
                     let code_res = fetch_info(&mut code).await;
                     if code_res.is_ok() {
                         if !open!("Discord") || load_client(&code, &mut client).await.is_err() {
-                            log::warn!("Discord exited or ipc client exited unexpectedly... Trying again...");
+                            REvents::DiscordUnexpextedExit.flush(None);
                             continue 'run;
                         };
                         match rx.try_recv() {
                             Ok(cli) => {
-                                log::info!("Recieved another request...");
                                 code = cli;
                             }
                             Err(_) => continue 'update,
@@ -124,18 +124,20 @@ async fn run(mut rx: Receiver<interface::code::Code>) {
                     }
                     if code.detach_status {
                         let _ = client.clear_activity();
+                        REvents::IpcClearActivity.flush(None);
                         break 'update;
                     }
                 }
             }
             Err(err) => {
-                log::error!("{err}");
+                REvents::IpcConnectionError.eflush(Some(err));
                 sleep!(5);
                 continue 'run;
             }
         }
         let _ = client.close();
-        log::info!("Session {} disconnected", sess);
+        REvents::IpcCloseClient.flush(None);
+        REvents::SessionStatus.flush(Some(format!("{} exited", code.tmux_session)));
     }
 }
 

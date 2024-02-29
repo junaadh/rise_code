@@ -73,3 +73,8 @@ impl RiseFormat for &str {
 pub trait TimeKeeper {
     fn elapsed(&self) -> String;
 }
+
+pub trait EventHandler {
+    fn write_msg(&self);
+    fn ewrite_msg(&self);
+}

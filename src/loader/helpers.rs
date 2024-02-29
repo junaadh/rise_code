@@ -2,7 +2,7 @@ use std::fs;
 
 use super::traits::RegexMatcher;
 
-use crate::{awk, envvar, grep};
+use crate::{awk, envvar, events::REvents, grep};
 
 pub fn setup_log(name: &str) {
     let name = format!("{}/{name}", envvar!());
@@ -42,7 +42,7 @@ pub fn setup_log(name: &str) {
         .apply()
         .map_err(|err| println!("Failed to initialize logger: {}", err))
         .unwrap();
-    log::info!("Start logging @ {name}", name = &name);
+    REvents::Startlog.flush(Some(name));
 }
 
 pub fn get_filenames(text: String) -> String {
@@ -61,5 +61,10 @@ pub fn get_filenames(text: String) -> String {
     if !file.regex(pattern) {
         file = "".to_string()
     }
+
+    if file.parse::<i32>().is_ok() {
+        file = "".to_string()
+    }
+
     file
 }

@@ -60,3 +60,12 @@ macro_rules! envvar {
             .unwrap_or_default()
     };
 }
+
+// #[macro_export]
+// macro_rules! log_connect {
+//     ($code: expr) => {
+//         log::info!("Succesfully connected to rpc client");
+//         log::info!("Session {}", $code.tmux_session);
+//         log::info!("Coding in {}", $code.language.name.to_string());
+//     };
+// }
