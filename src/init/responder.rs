@@ -25,7 +25,7 @@ fn startup() -> String {
     //TODO: if git is not a ssh authenticated
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(not(target_os = "macos"))]
 fn startup() -> String {
     r#"#!/bin/sh
         
@@ -41,7 +41,7 @@ fn startup() -> String {
         echo $session_name:$language:$file_name:$repo | socat - UNIX-CONNECT:/tmp/dev_rpc
         exit 0
     else
-        echo $session_name | nc -U /tmp/dev_rpc
+        echo $session_name | socat - UNIX-CONNECT:/tmp/dev_rpc
         exit 0
     fi"#
     .to_string()
