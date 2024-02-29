@@ -1,11 +1,11 @@
 use discord_rich_presence::DiscordIpc;
 use tokio::sync::mpsc::{error::TryRecvError, Receiver};
 
-use crate::{envvar, events::REvents, open, sleep, sleep_ms};
+use crate::{events::REvents, open, sleep, sleep_ms};
 
 pub async fn run(mut rx: Receiver<crate::interface::code::Code>) {
     let mut code = crate::interface::code::Code::default();
-    let client_id = envvar!("clientid");
+    let client_id = env!("clientid");
     if !client_id.is_empty() {
         REvents::FetchClientId.flush(None);
     }
@@ -34,7 +34,7 @@ pub async fn run(mut rx: Receiver<crate::interface::code::Code>) {
         }
         REvents::DiscordOpen.flush(None);
         REvents::ConnectingIpcClient.flush(None);
-        match super::connect::get_client(&client_id).await {
+        match super::connect::get_client(client_id).await {
             Ok(disc) => {
                 REvents::IpcConnectionSuccess.flush(None);
                 client = disc;
