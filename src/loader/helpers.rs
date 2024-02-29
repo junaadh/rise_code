@@ -1,6 +1,6 @@
 use std::fs;
 
-use super::traits::RegexMatcher;
+use crate::traits::RegexMatcher;
 
 use crate::{awk, envvar, events::REvents, grep};
 

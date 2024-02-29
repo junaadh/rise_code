@@ -3,7 +3,7 @@ mod core;
 mod detach;
 use tokio::sync::mpsc::Sender;
 
-use crate::{events::REvents, interface::code::Code, loader::traits::TimeKeeper};
+use crate::{events::REvents, interface::code::Code, traits::TimeKeeper};
 
 const PORT: &str = "/tmp/dev_rpc";
 

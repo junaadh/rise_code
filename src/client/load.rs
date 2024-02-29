@@ -3,7 +3,7 @@ use discord_rich_presence::{
     DiscordIpc, DiscordIpcClient,
 };
 
-use crate::loader::traits::RiseFormat;
+use crate::traits::RiseFormat;
 
 pub async fn load_client(
     code: &crate::interface::code::Code,

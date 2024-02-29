@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::loader::traits::TimeKeeper;
+use crate::traits::TimeKeeper;
 
 use super::languages::LanguageExt;
 

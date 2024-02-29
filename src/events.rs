@@ -1,4 +1,4 @@
-use crate::loader::traits::EventHandler;
+use crate::traits::EventHandler;
 
 pub struct REventData {
     msg: String,
