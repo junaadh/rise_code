@@ -5,7 +5,7 @@ use crate::{events::REvents, open, sleep, sleep_ms};
 
 pub async fn run(mut rx: Receiver<crate::interface::code::Code>) {
     let mut code = crate::interface::code::Code::default();
-    let client_id = env!("clientid");
+    let client_id = "1208484529510154260";
     if !client_id.is_empty() {
         REvents::FetchClientId.flush(None);
     }

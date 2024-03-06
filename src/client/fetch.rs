@@ -1,4 +1,4 @@
-use crate::{loader::parser, sleep};
+use crate::{loader::parser, sleep, traits::DirCreator};
 
 pub async fn fetch_info(code: &mut crate::interface::code::Code) -> Result<(), ()> {
     sleep!(5);
@@ -24,3 +24,11 @@ pub async fn fetch_info(code: &mut crate::interface::code::Code) -> Result<(), (
     code.file(&active_file);
     Ok(())
 }
+
+// pub async fn get_git(path: &str) -> String {
+//     let git = format!("{path}/.git");
+//     if !git.check() {
+//         "https://www.github.com".to_string()
+//     } else {
+//     }
+// }

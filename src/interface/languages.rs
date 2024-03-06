@@ -55,6 +55,7 @@ pub enum Language {
     R,
     Rust,
     Typescript,
+    OCaml,
     Unknown,
 }
 
@@ -80,6 +81,7 @@ impl Language {
             Self::R => "r",
             Self::Rust => "rust",
             Self::Typescript => "typescript",
+            &Self::OCaml => "ocaml",
             _ => "unknown",
         };
         res.to_string()
@@ -108,6 +110,7 @@ impl Language {
             "r" => Self::R,
             "rust" => Self::Rust,
             "typescript" => Self::Typescript,
+            "ocaml" => Self::OCaml,
             _ => Self::Unknown,
         }
     }
@@ -126,6 +129,7 @@ impl Language {
             "r" => Self::R.to_string(),
             "rs" => Self::Rust.to_string(),
             "ts" | "tsx" => Self::Typescript.to_string(),
+            "ml" | "mli" => Self::OCaml.to_string(),
             _ => "unknown".to_string(),
         }
     }
